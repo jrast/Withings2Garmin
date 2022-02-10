@@ -83,7 +83,6 @@ def sync(garmin_username, garmin_password, fromdate, todate, no_upload, verbose)
 
 	for group in groups:
 		# get extra physical measurements
-
 		dt = group.get_datetime()
 		weight = group.get_weight()
 		fat_ratio = group.get_fat_ratio()
@@ -104,7 +103,8 @@ def sync(garmin_username, garmin_password, fromdate, todate, no_upload, verbose)
 	fit.finish()
 
 	if no_upload:
-		sys.stdout.buffer.write(fit.getvalue())
+		with open('./weigths-data.fit', 'wb') as fh:
+			fh.write(fit.getvalue())
 		return
 
 	# DEBUG: test.fit contain data from Withings Healthmate

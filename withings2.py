@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+from os import access
 import sys
 import requests
 import json
@@ -14,10 +14,11 @@ class WithingsException(Exception):
 
 class Withings():
 	AUTHORIZE_URL = 'https://account.withings.com/oauth2_user/authorize2'
-	TOKEN_URL = 'https://account.withings.com/oauth2/token'
-	GETMEAS_URL = 'https://wbsapi.withings.net/measure?action=getmeas'
+	TOKEN_URL = 'https://wbsapi.withings.net/v2/oauth2'
+	GETMEAS_URL = 'https://wbsapi.withings.net/measure'
 	APP_CONFIG = 'config/withings_app.json'
 	USER_CONFIG = 'config/withings_user.json'
+
 
 class WithingsConfig(Withings):
 	config = {}
@@ -95,6 +96,7 @@ class WithingsOAuth2(Withings):
 		print("Withings: Get Access Token")
 
 		params = {
+			"action": "requesttoken",
 			"grant_type" : "authorization_code",
 			"client_id" : self.app_config['client_id'],
 			"client_secret" : self.app_config['consumer_secret'],
@@ -103,6 +105,7 @@ class WithingsOAuth2(Withings):
 		}
 
 		req = requests.post(Withings.TOKEN_URL, params )
+		req.raise_for_status()
 
 		accessToken = req.json()
 
@@ -118,14 +121,16 @@ class WithingsOAuth2(Withings):
 			print()
 			print("If it's regarding an invalid code, try to start the script again to obtain a new link.")
 
-		self.user_config['access_token'] = accessToken.get('access_token')
-		self.user_config['refresh_token'] = accessToken.get('refresh_token')
-		self.user_config['userid'] = accessToken.get('userid')
+		body = accessToken.get('body')
+		self.user_config['access_token'] = body.get('access_token')
+		self.user_config['refresh_token'] = body.get('refresh_token')
+		self.user_config['userid'] = body.get('userid')
 
 	def refreshAccessToken(self):
 		print("Withings: Refresh Access Token")
 
 		params = {
+			"action": "requesttoken",
 			"grant_type" : "refresh_token",
 			"client_id" : self.app_config['client_id'],
 			"client_secret" : self.app_config['consumer_secret'],
@@ -133,24 +138,19 @@ class WithingsOAuth2(Withings):
 		}
 
 		req = requests.post(Withings.TOKEN_URL, params )
-
-		accessToken = req.json()
-
-		if(accessToken.get('errors')):
-			print("Received error(s):")
-			for message in accessToken.get('errors'):
-				error = message.get('message')
-				print("  " + error)
-				if "invalid code" in error:
-					print("Removing invalid authentification_code")
-					self.user_config['authentification_code'] = ''
-
+		req.raise_for_status()
+		data = req.json()
+		
+		if data['status'] != 0:
+			print(f"Refreshing token failed: {data['error']}")
 			print()
 			print("If it's regarding an invalid code, try to start the script again to obtain a new link.")
 
-		self.user_config['access_token'] = accessToken.get('access_token')
-		self.user_config['refresh_token'] = accessToken.get('refresh_token')
-		self.user_config['userid'] = accessToken.get('userid')
+		body = data.get('body')
+		self.user_config['access_token'] = body.get('access_token')
+		self.user_config['refresh_token'] = body.get('refresh_token')
+		self.user_config['userid'] = body.get('userid')
+
 
 class WithingsAccount(Withings):
 	def __init__(self):
@@ -160,21 +160,22 @@ class WithingsAccount(Withings):
 		print("Withings: Get Measurements")
 
 		params = {
-			"access_token" : self.withings.user_config['access_token'],
-			# "meastype" : Withings.MEASTYPE_WEIGHT,
+			"action": 'getmeas',
+			"meastypes" : '1,4,5,6,8,76,77,88',
 			"category" : 1,
 			"startdate" : startdate,
 			"enddate" : enddate,
 		}
 
-		req = requests.post(Withings.GETMEAS_URL, params )
-
+		req = requests.post(Withings.GETMEAS_URL, params, headers={'Authorization': f'Bearer {self.withings.user_config["access_token"]}'} )
+		req.raise_for_status()
 		measurements = req.json()
 
 		if measurements.get('status') == 0:
 			print("   Measurements received")
-
 			return [WithingsMeasureGroup(g) for g in measurements.get('body').get('measuregrps')]
+		else:
+			print("  Error:", measurements['error'])
 
 class WithingsMeasureGroup(object):
     def __init__(self, measuregrp):
